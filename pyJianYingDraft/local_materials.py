@@ -1,6 +1,8 @@
 import os
+import json
 import uuid
 import pymediainfo
+from copy import deepcopy
 
 from typing import Optional, Literal, List
 from typing import Dict, Any
@@ -174,6 +176,176 @@ class VideoMaterial:
         if self.matting is not None:
             video_material_json["matting"] = self.matting.export_json()
         return video_material_json
+
+class CombinationMaterial:
+    """复合片段素材, 对应剪映草稿中的 ``materials.drafts``。
+
+    复合片段在时间线上仍由 ``VideoSegment`` 承载。剪映格式还要求
+    ``materials.videos`` 中存在一个外层占位视频素材, 该占位 JSON 由
+    本类的 ``export_video_json`` 生成, 但不作为独立素材类型暴露。
+    """
+
+    id: str
+    """复合片段素材 ID, 写入 ``materials.drafts[].id``。"""
+    combination_id: str
+    """剪映组合 ID, 写入 ``materials.drafts[].combination_id``。"""
+    material_id: str
+    """外层 ``VideoSegment.material_id`` 引用的占位视频素材 ID。"""
+    material_name: str
+    """复合片段名称。"""
+    duration: int
+    """复合片段时长, 单位为微秒。"""
+    width: int
+    height: int
+    draft: Dict[str, Any]
+    """嵌套草稿 JSON。"""
+
+    def __init__(self, draft: Any, *, name: str, duration: int, width: int, height: int):
+        self.id = str(uuid.uuid4()).upper()
+        self.combination_id = str(uuid.uuid4()).upper()
+        self.material_id = str(uuid.uuid4()).upper()
+        self.material_name = name
+        self.duration = duration
+        self.width = width
+        self.height = height
+
+        self.canvas_id = str(uuid.uuid4()).upper()
+        self.sound_channel_mapping_id = str(uuid.uuid4()).upper()
+        self.vocal_separation_id = str(uuid.uuid4()).upper()
+
+        if hasattr(draft, "dumps"):
+            self.draft = json.loads(draft.dumps())
+        elif isinstance(draft, dict):
+            self.draft = deepcopy(draft)
+        else:
+            raise TypeError("draft must be a ScriptFile-like object or a dict")
+
+    def build_segment_extra_material_refs(self, speed_id: str) -> List[str]:
+        """返回外层复合片段需要引用的素材 ID。"""
+        return [
+            self.id,
+            speed_id,
+            self.canvas_id,
+            self.sound_channel_mapping_id,
+            self.vocal_separation_id,
+        ]
+
+    def export_json(self) -> Dict[str, Any]:
+        """导出到 ``materials.drafts``。"""
+        return {
+            "category_id": "",
+            "category_name": "",
+            "combination_id": self.combination_id,
+            "draft": deepcopy(self.draft),
+            "formula_id": "",
+            "id": self.id,
+            "name": "",
+            "precompile_combination": False,
+            "type": "combination",
+        }
+
+    def export_video_json(self) -> Dict[str, Any]:
+        """导出剪映要求放在 ``materials.videos`` 的外层占位项。"""
+        return {
+            "aigc_type": "none",
+            "audio_fade": None,
+            "cartoon_path": "",
+            "category_id": "",
+            "category_name": "",
+            "check_flag": 63487,
+            "crop": CropSettings().export_json(),
+            "crop_ratio": "free",
+            "crop_scale": 1.0,
+            "duration": self.duration,
+            "extra_type_option": 2,
+            "formula_id": "",
+            "freeze": None,
+            "has_audio": True,
+            "height": self.height,
+            "id": self.material_id,
+            "intensifies_audio_path": "",
+            "intensifies_path": "",
+            "is_ai_generate_content": False,
+            "is_copyright": True,
+            "is_text_edit_overdub": False,
+            "is_unified_beauty_mode": False,
+            "local_id": "",
+            "local_material_id": "",
+            "material_id": "",
+            "material_name": self.material_name,
+            "material_url": "",
+            "matting": {
+                "flag": 0,
+                "has_use_quick_brush": False,
+                "has_use_quick_eraser": False,
+                "interactiveTime": [],
+                "path": "",
+                "strokes": [],
+            },
+            "media_path": "",
+            "object_locked": None,
+            "origin_material_id": "",
+            "path": "",
+            "picture_from": "none",
+            "picture_set_category_id": "",
+            "picture_set_category_name": "",
+            "request_id": "",
+            "reverse_intensifies_path": "",
+            "reverse_path": "",
+            "smart_motion": None,
+            "source": 0,
+            "source_platform": 0,
+            "stable": {
+                "matrix_path": "",
+                "stable_level": 0,
+                "time_range": {"duration": 0, "start": 0},
+            },
+            "team_id": "",
+            "type": "video",
+            "video_algorithm": {
+                "algorithms": [],
+                "complement_frame_config": None,
+                "deflicker": None,
+                "gameplay_configs": [],
+                "motion_blur_config": None,
+                "noise_reduction": None,
+                "path": "",
+                "quality_enhance": None,
+                "time_range": None,
+            },
+            "width": self.width,
+        }
+
+    def export_canvas_json(self) -> Dict[str, Any]:
+        return {
+            "album_image": "",
+            "blur": 0.0,
+            "color": "",
+            "id": self.canvas_id,
+            "image": "",
+            "image_id": "",
+            "image_name": "",
+            "source_platform": 0,
+            "team_id": "",
+            "type": "canvas_color",
+        }
+
+    def export_sound_channel_mapping_json(self) -> Dict[str, Any]:
+        return {
+            "audio_channel_mapping": 0,
+            "id": self.sound_channel_mapping_id,
+            "is_config_open": False,
+            "type": "",
+        }
+
+    def export_vocal_separation_json(self) -> Dict[str, Any]:
+        return {
+            "choice": 0,
+            "id": self.vocal_separation_id,
+            "production_path": "",
+            "time_range": None,
+            "type": "vocal_separation",
+        }
 
 class AudioMaterial:
     """本地音频素材"""

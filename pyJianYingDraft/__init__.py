@@ -1,7 +1,7 @@
 import warnings
 import sys
 
-from .local_materials import CropSettings, VideoMaterial, VideoMaterialMatting, AudioMaterial
+from .local_materials import CropSettings, VideoMaterial, VideoMaterialMatting, CombinationMaterial, AudioMaterial
 from .keyframe import KeyframeProperty
 
 from .time_util import Timerange
@@ -207,6 +207,8 @@ __all__ = [
     "VideoCharacterEffectType",
     "CropSettings",
     "VideoMaterial",
+    "VideoMaterialMatting",
+    "CombinationMaterial",
     "AudioMaterial",
     "KeyframeProperty",
     "Timerange",

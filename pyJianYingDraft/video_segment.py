@@ -11,7 +11,7 @@ from typing import Dict, List, Tuple, Any
 
 from .time_util import tim, Timerange
 from .segment import VisualSegment, ClipSettings, AudioFade
-from .local_materials import VideoMaterial, VideoMaterialMatting
+from .local_materials import CombinationMaterial, VideoMaterial, VideoMaterialMatting
 from .animation import SegmentAnimations, VideoAnimation
 
 from .metadata import EffectMeta, EffectParamInstance
@@ -315,7 +315,7 @@ class MixMode:
 class VideoSegment(VisualSegment):
     """安放在轨道上的一个视频/图片片段"""
 
-    material_instance: VideoMaterial
+    material_instance: Union[VideoMaterial, CombinationMaterial]
     """素材实例"""
     material_size: Tuple[int, int]
     """素材尺寸"""
@@ -357,13 +357,13 @@ class VideoSegment(VisualSegment):
     在放入轨道时自动添加到素材列表中
     """
 
-    def __init__(self, material: Union[VideoMaterial, str], target_timerange: Timerange, *,
+    def __init__(self, material: Union[VideoMaterial, CombinationMaterial, str], target_timerange: Timerange, *,
                  source_timerange: Optional[Timerange] = None, speed: Optional[float] = None, volume: float = 1.0,
                  change_pitch: bool = False, clip_settings: Optional[ClipSettings] = None):
         """利用给定的视频/图片素材构建一个轨道片段, 并指定其时间信息及图像调节设置
 
         Args:
-            material (`VideoMaterial` or `str`): 素材实例或素材路径, 若为路径则自动构造素材实例(此时不能指定`cropSettings`参数)
+            material (`VideoMaterial`, `CombinationMaterial` or `str`): 素材实例或素材路径, 若为路径则自动构造素材实例(此时不能指定`cropSettings`参数)
             target_timerange (`Timerange`): 片段在轨道上的目标时间范围
             source_timerange (`Timerange`, optional): 截取的素材片段的时间范围, 默认从开头根据`speed`截取与`target_timerange`等长的一部分
             speed (`float`, optional): 播放速度, 默认为1.0. 此项与`source_timerange`同时指定时, 将覆盖`target_timerange`中的时长
@@ -400,6 +400,9 @@ class VideoSegment(VisualSegment):
         self.mask = None
         self.background_filling = None
         self.fade = None
+
+        if isinstance(material, CombinationMaterial):
+            self.extra_material_refs = material.build_segment_extra_material_refs(self.speed.global_id)
 
     def add_animation(self, animation_type: Union[IntroType, OutroType, GroupAnimationType],
                       duration: Optional[Union[int, str]] = None) -> "VideoSegment":
@@ -506,6 +509,8 @@ class VideoSegment(VisualSegment):
             path (`str`, optional): 剪映生成的抠像缓存路径. 默认不写入缓存路径,
                 由剪映在打开或导出草稿时生成.
         """
+        if isinstance(self.material_instance, CombinationMaterial):
+            raise TypeError("复合片段不能直接添加智能抠像, 请对嵌套素材片段添加")
         self.material_instance.matting = VideoMaterialMatting(path=path)
         return self
 

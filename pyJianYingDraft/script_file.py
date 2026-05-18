@@ -11,7 +11,7 @@ from . import assets
 from . import exceptions
 from .template_mode import ImportedTrack, EditableTrack, ImportedMediaTrack, ImportedTextTrack, ShrinkMode, ExtendMode, import_track
 from .time_util import Timerange, tim, srt_tstamp
-from .local_materials import VideoMaterial, AudioMaterial
+from .local_materials import CombinationMaterial, VideoMaterial, AudioMaterial
 from .segment import BaseSegment, Speed, ClipSettings
 from .audio_segment import AudioSegment, AudioFade, AudioEffect
 from .video_segment import VideoSegment, StickerSegment, SegmentAnimations, VideoEffect, Transition, Filter, BackgroundFilling, MixMode
@@ -21,6 +21,11 @@ from .track import TrackType, BaseTrack, Track
 
 from .metadata import VideoSceneEffectType, VideoCharacterEffectType, FilterType
 
+def _export_material_item(item: Any) -> Dict[str, Any]:
+    if isinstance(item, dict):
+        return deepcopy(item)
+    return item.export_json()
+
 class ScriptMaterial:
     """草稿文件中的素材信息部分"""
 
@@ -28,6 +33,8 @@ class ScriptMaterial:
     """音频素材列表"""
     videos: List[VideoMaterial]
     """视频素材列表"""
+    drafts: List[CombinationMaterial]
+    """复合片段素材列表"""
     stickers: List[Dict[str, Any]]
     """贴纸素材列表"""
     texts: List[Dict[str, Any]]
@@ -54,10 +61,15 @@ class ScriptMaterial:
     """混合模式列表, 导出到`effects`中"""
     canvases: List[BackgroundFilling]
     """背景填充列表"""
+    sound_channel_mappings: List[Dict[str, Any]]
+    """声道映射列表"""
+    vocal_separations: List[Dict[str, Any]]
+    """人声分离列表"""
 
     def __init__(self):
         self.audios = []
         self.videos = []
+        self.drafts = []
         self.stickers = []
         self.texts = []
 
@@ -72,6 +84,8 @@ class ScriptMaterial:
         self.filters = []
         self.mix_modes = []
         self.canvases = []
+        self.sound_channel_mappings = []
+        self.vocal_separations = []
 
     @overload
     def __contains__(self, item: Union[VideoMaterial, AudioMaterial]) -> bool: ...
@@ -83,6 +97,8 @@ class ScriptMaterial:
     def __contains__(self, item) -> bool:
         if isinstance(item, VideoMaterial):
             return item.material_id in [video.material_id for video in self.videos]
+        elif isinstance(item, CombinationMaterial):
+            return item.id in [draft.id for draft in self.drafts]
         elif isinstance(item, AudioMaterial):
             return item.material_id in [audio.material_id for audio in self.audios]
         elif isinstance(item, AudioFade):
@@ -111,11 +127,11 @@ class ScriptMaterial:
             "audio_track_indexes": [],
             "audios": [audio.export_json() for audio in self.audios],
             "beats": [],
-            "canvases": [canvas.export_json() for canvas in self.canvases],
+            "canvases": [_export_material_item(canvas) for canvas in self.canvases],
             "chromas": [],
             "color_curves": [],
             "digital_humans": [],
-            "drafts": [],
+            "drafts": [draft.export_json() for draft in self.drafts],
             "effects": [_filter.export_json() for _filter in self.filters] + [mix_mode.export_json() for mix_mode in self.mix_modes],
             "flowers": [],
             "green_screens": [],
@@ -136,7 +152,7 @@ class ScriptMaterial:
             "shapes": [],
             "smart_crops": [],
             "smart_relights": [],
-            "sound_channel_mappings": [],
+            "sound_channel_mappings": [_export_material_item(mapping) for mapping in self.sound_channel_mappings],
             "speeds": [spd.export_json() for spd in self.speeds],
             "stickers": self.stickers,
             "tail_leaders": [],
@@ -146,9 +162,9 @@ class ScriptMaterial:
             "transitions": [transition.export_json() for transition in self.transitions],
             "video_effects": [effect.export_json() for effect in self.video_effects],
             "video_trackings": [],
-            "videos": [video.export_json() for video in self.videos],
+            "videos": [video.export_json() for video in self.videos] + [draft.export_video_json() for draft in self.drafts],
             "vocal_beautifys": [],
-            "vocal_separations": []
+            "vocal_separations": [_export_material_item(separation) for separation in self.vocal_separations]
         }
 
 class ScriptFile:
@@ -317,26 +333,18 @@ class ScriptFile:
 
         return next(track for track in self.tracks.values() if track.accept_segment_type == segment_type)
 
-    def add_segment(self, segment: Union[VideoSegment, StickerSegment, AudioSegment, TextSegment],
-                    track_name: Optional[str] = None) -> "ScriptFile":
-        """向指定轨道中添加一个片段
+    @staticmethod
+    def _append_raw_material_once(material_list: List[Any], material_json: Dict[str, Any]) -> None:
+        material_id = material_json.get("id")
+        for material in material_list:
+            if isinstance(material, dict) and material.get("id") == material_id:
+                return
+            if getattr(material, "global_id", None) == material_id:
+                return
+        material_list.append(material_json)
 
-        Args:
-            segment (`VideoSegment`, `StickerSegment`, `AudioSegment`, or `TextSegment`): 要添加的片段
-            track_name (`str`, optional): 添加到的轨道名称. 当此类型的轨道仅有一条时可省略.
-
-        Raises:
-            `NameError`: 未找到指定名称的轨道, 或必须提供`track_name`参数时未提供
-            `TypeError`: 片段类型不匹配轨道类型
-            `SegmentOverlap`: 新片段与已有片段重叠
-        """
-        target = self._get_track(type(segment), track_name)
-
-        # 加入轨道并更新时长
-        target.add_segment(segment)
-        self.duration = max(self.duration, segment.end)
-
-        # 自动添加相关素材
+    def _register_segment_materials(self, segment: Union[VideoSegment, StickerSegment, AudioSegment, TextSegment]) -> None:
+        """收集片段引用的素材到草稿素材表。"""
         if isinstance(segment, VideoSegment):
             # 出入场等动画
             if (segment.animations_instance is not None) and (segment.animations_instance not in self.materials):
@@ -366,6 +374,22 @@ class ScriptFile:
                 self.materials.canvases.append(segment.background_filling)
 
             self.materials.speeds.append(segment.speed)
+
+            if isinstance(segment.material_instance, CombinationMaterial):
+                material = segment.material_instance
+                if material not in self.materials:
+                    self.materials.drafts.append(material)
+                self._append_raw_material_once(self.materials.canvases, material.export_canvas_json())
+                self._append_raw_material_once(
+                    self.materials.sound_channel_mappings,
+                    material.export_sound_channel_mapping_json(),
+                )
+                self._append_raw_material_once(
+                    self.materials.vocal_separations,
+                    material.export_vocal_separation_json(),
+                )
+            else:
+                self.add_material(segment.material_instance)
         elif isinstance(segment, StickerSegment):
             self.materials.stickers.append(segment.export_material())
         elif isinstance(segment, AudioSegment):
@@ -377,6 +401,7 @@ class ScriptFile:
                 if effect not in self.materials:
                     self.materials.audio_effects.append(effect)
             self.materials.speeds.append(segment.speed)
+            self.add_material(segment.material_instance)
         elif isinstance(segment, TextSegment):
             # 出入场等动画
             if (segment.animations_instance is not None) and (segment.animations_instance not in self.materials):
@@ -390,11 +415,114 @@ class ScriptFile:
             # 字体样式
             self.materials.texts.append(segment.export_material())
 
-        # 添加片段素材
-        if isinstance(segment, (VideoSegment, AudioSegment)):
-            self.add_material(segment.material_instance)
+    def _rebuild_materials_from_tracks(self) -> None:
+        self.materials = ScriptMaterial()
+        self.duration = max([getattr(track, "end_time", 0) for track in self.imported_tracks], default=0)
+        for track in self.tracks.values():
+            for segment in track.segments:
+                self._register_segment_materials(segment)
+                self.duration = max(self.duration, segment.end)
+
+    def add_segment(self, segment: Union[VideoSegment, StickerSegment, AudioSegment, TextSegment],
+                    track_name: Optional[str] = None) -> "ScriptFile":
+        """向指定轨道中添加一个片段
+
+        Args:
+            segment (`VideoSegment`, `StickerSegment`, `AudioSegment`, or `TextSegment`): 要添加的片段
+            track_name (`str`, optional): 添加到的轨道名称. 当此类型的轨道仅有一条时可省略.
+
+        Raises:
+            `NameError`: 未找到指定名称的轨道, 或必须提供`track_name`参数时未提供
+            `TypeError`: 片段类型不匹配轨道类型
+            `SegmentOverlap`: 新片段与已有片段重叠
+        """
+        target = self._get_track(type(segment), track_name)
+
+        # 加入轨道并更新时长
+        target.add_segment(segment)
+        self.duration = max(self.duration, segment.end)
+
+        # 自动添加相关素材
+        self._register_segment_materials(segment)
 
         return self
+
+    def compose_segments(self, track_name: str, segment_indices: Optional[List[int]] = None, *,
+                         name: str = "复合片段1") -> VideoSegment:
+        """将同一视频轨道上的多个片段组成复合片段。
+
+        复合片段在时间线上仍表现为一个 ``VideoSegment``，该片段引用
+        ``CombinationMaterial``。第一版仅支持当前草稿中新建的普通视频轨道,
+        不处理模板导入轨道。
+
+        Args:
+            track_name (`str`): 要组合的轨道名称。
+            segment_indices (`List[int]`, optional): 要组合的片段下标。默认组合整条轨道。
+            name (`str`, optional): 复合片段名称。
+
+        Returns:
+            `VideoSegment`: 外层时间线上的复合片段。
+
+        Raises:
+            `NameError`: 轨道不存在。
+            `TypeError`: 指定轨道不是视频轨道。
+            `ValueError`: 片段选择为空、不连续或下标越界。
+        """
+        if track_name not in self.tracks:
+            raise NameError("不存在名为 '%s' 的轨道" % track_name)
+
+        track = self.tracks[track_name]
+        if track.track_type != TrackType.video:
+            raise TypeError("只能组合视频轨道片段")
+        if len(track.segments) == 0:
+            raise ValueError("不能组合空轨道")
+
+        if segment_indices is None:
+            indices = list(range(len(track.segments)))
+        else:
+            indices = sorted(set(segment_indices))
+        if len(indices) == 0:
+            raise ValueError("未选择任何片段")
+        if indices[0] < 0 or indices[-1] >= len(track.segments):
+            raise ValueError("片段下标超出范围")
+        if indices != list(range(indices[0], indices[-1] + 1)):
+            raise ValueError("复合片段第一版只支持连续片段下标")
+
+        selected_segments = [track.segments[index] for index in indices]
+        compound_start = min(segment.start for segment in selected_segments)
+        compound_end = max(segment.end for segment in selected_segments)
+        compound_duration = compound_end - compound_start
+
+        nested = ScriptFile(self.width, self.height, self.fps, False)
+        nested.add_track(track.track_type, track.name, mute=track.mute, absolute_index=track.render_index)
+        for segment in selected_segments:
+            nested_segment = deepcopy(segment)
+            nested_segment.start = nested_segment.start - compound_start
+            nested.add_segment(nested_segment, track.name)
+
+        combination_material = CombinationMaterial(
+            nested,
+            name=name,
+            duration=compound_duration,
+            width=self.width,
+            height=self.height,
+        )
+        combination_segment = VideoSegment(
+            combination_material,
+            Timerange(compound_start, compound_duration),
+            source_timerange=Timerange(0, compound_duration),
+        )
+
+        first_index = indices[0]
+        last_index = indices[-1]
+        track.segments = (
+            track.segments[:first_index]
+            + [combination_segment]
+            + track.segments[last_index + 1:]
+        )
+        self._rebuild_materials_from_tracks()
+
+        return combination_segment
 
     def add_effect(self, effect: Union[VideoSceneEffectType, VideoCharacterEffectType],
                    t_range: Timerange, track_name: Optional[str] = None, *,
