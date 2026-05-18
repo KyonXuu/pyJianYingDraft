@@ -1,11 +1,18 @@
+from pathlib import Path
+
 from setuptools import setup, find_packages
+
+
+readme_path = Path("pypi_readme.md")
+if not readme_path.exists():
+    readme_path = Path("README.md")
 
 setup(
     name="pyjianyingdraft",
     version="0.2.6",
     author="gary318",
     description="轻量、灵活、易上手的Python剪映草稿生成及导出工具，构建全自动化视频剪辑/混剪流水线",
-    long_description=open("pypi_readme.md", "r", encoding="utf-8").read(),
+    long_description=readme_path.read_text(encoding="utf-8"),
     long_description_content_type="text/markdown",
     url="https://github.com/GuanYixuan/pyJianYingDraft",
     packages=find_packages(exclude=["tools", "tools.*", "ignored", "ignored.*"]),
