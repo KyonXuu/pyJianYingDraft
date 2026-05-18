@@ -181,7 +181,9 @@ class ScriptFile:
     imported_tracks: List[ImportedTrack]
     """导入的轨道信息"""
 
-    def __init__(self, width: int, height: int, fps: int, maintrack_adsorb: bool):
+    def __init__(self, width: int, height: int, fps: int, maintrack_adsorb: bool, *,
+                 enable_free_index_mode: bool = False,
+                 enable_render_index_track_mode: bool = False):
         """**创建剪映草稿推荐使用`DraftFolder.create_draft()`而非此方法**
 
         Args:
@@ -189,6 +191,8 @@ class ScriptFile:
             height (int): 视频高度, 单位为像素
             fps (int): 视频帧率
             maintrack_adsorb (bool): 是否启用主轨道吸附（主轨磁吸）
+            enable_free_index_mode (bool, optional): 是否启用自由层级模式.
+            enable_render_index_track_mode (bool, optional): 是否启用轨道渲染索引模式.
         """
         self.save_path = None
 
@@ -206,6 +210,26 @@ class ScriptFile:
 
         with open(assets.get_asset_path('DRAFT_CONTENT_TEMPLATE'), "r", encoding="utf-8") as f:
             self.content = json.load(f)
+        if enable_free_index_mode:
+            self.content["free_render_index_mode_on"] = True
+        if enable_render_index_track_mode:
+            self.content["render_index_track_mode_on"] = True
+
+    def enable_free_index_mode(self, enable: bool = True) -> "ScriptFile":
+        """启用或禁用自由层级模式"""
+        self.content["free_render_index_mode_on"] = enable
+        return self
+
+    def enable_render_index_track_mode(self, enable: bool = True) -> "ScriptFile":
+        """启用或禁用轨道渲染索引模式"""
+        self.content["render_index_track_mode_on"] = enable
+        return self
+
+    def set_both_index_modes(self, enable: bool = True) -> "ScriptFile":
+        """同时设置自由层级模式和轨道渲染索引模式"""
+        self.enable_free_index_mode(enable)
+        self.enable_render_index_track_mode(enable)
+        return self
 
     @staticmethod
     def load_template(json_path: str) -> "ScriptFile":

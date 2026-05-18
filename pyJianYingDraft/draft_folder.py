@@ -62,7 +62,9 @@ class DraftFolder:
 
     def create_draft(self, draft_name: str, width: int, height: int, fps: int = 30, *,
                      maintrack_adsorb: bool = True,
-                     allow_replace: bool = False) -> ScriptFile:
+                     allow_replace: bool = False,
+                     enable_free_index_mode: bool = False,
+                     enable_render_index_track_mode: bool = False) -> ScriptFile:
         """创建一个新草稿并开始编辑, 编辑完成后使用`ScriptFile.save()`保存即可
 
         Args:
@@ -72,6 +74,8 @@ class DraftFolder:
             fps (`int`, optional): 视频帧率. 默认为30.
             maintrack_adsorb (`bool`, optional): 是否启用主轨道吸附（主轨磁吸）. 默认启用.
             allow_replace (`bool`, optional): 是否允许覆盖与`draft_name`重名的草稿. 默认为否.
+            enable_free_index_mode (`bool`, optional): 是否启用自由层级模式. 默认为否.
+            enable_render_index_track_mode (`bool`, optional): 是否启用轨道渲染索引模式. 默认为否.
 
         Raises:
             `FileExistsError`: 已存在与`draft_name`重名的草稿, 但不允许覆盖.
@@ -87,7 +91,9 @@ class DraftFolder:
         shutil.copy(assets.get_asset_path("DRAFT_META_TEMPLATE"), os.path.join(draft_path, "draft_meta_info.json"))
 
         # 创建草稿文件
-        script_file = ScriptFile(width, height, fps, maintrack_adsorb)
+        script_file = ScriptFile(width, height, fps, maintrack_adsorb,
+                                 enable_free_index_mode=enable_free_index_mode,
+                                 enable_render_index_track_mode=enable_render_index_track_mode)
         script_file.save_path = os.path.join(draft_path, "draft_content.json")
 
         return script_file
