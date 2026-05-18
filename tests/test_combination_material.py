@@ -4,7 +4,7 @@ import uuid
 import pyJianYingDraft as draft
 
 
-def _make_video_material(name: str) -> draft.VideoMaterial:
+def _make_video_material(name: str, *, smart_matting: bool = False) -> draft.VideoMaterial:
     material = draft.VideoMaterial.__new__(draft.VideoMaterial)
     material.material_id = uuid.uuid4().hex
     material.local_material_id = ""
@@ -15,7 +15,7 @@ def _make_video_material(name: str) -> draft.VideoMaterial:
     material.height = 1920
     material.crop_settings = draft.CropSettings()
     material.material_type = "video"
-    material.matting = draft.VideoMaterialMatting()
+    material.matting = draft.VideoMaterialMatting() if smart_matting else None
     return material
 
 
@@ -64,6 +64,34 @@ def test_compose_segments_exports_combination_material() -> None:
     ]
     assert len(nested["materials"]["videos"]) == 3
     assert {
-        material["matting"]["flag"]
+        material.get("matting", {}).get("flag", 0)
         for material in nested["materials"]["videos"]
-    } == {3}
+    } == {0}
+
+
+def test_compound_segment_can_enable_smart_matting_on_outer_material() -> None:
+    script = draft.ScriptFile(1080, 1920, 30, True)
+    script.add_track(draft.TrackType.video, "video")
+
+    for index in range(3):
+        segment = draft.VideoSegment(
+            _make_video_material(f"clip_{index}.mp4"),
+            draft.Timerange(index * 10_000_000, 10_000_000),
+            source_timerange=draft.Timerange(0, 10_000_000),
+        )
+        script.add_segment(segment, "video")
+
+    combination_segment = script.compose_segments("video", name="复合片段1")
+    returned = combination_segment.add_smart_matting()
+    exported = json.loads(script.dumps())
+
+    assert returned is combination_segment
+    assert len(exported["materials"]["videos"]) == 1
+    assert exported["materials"]["videos"][0]["matting"]["flag"] == 3
+    assert exported["materials"]["videos"][0]["matting"]["path"] == ""
+
+    nested = exported["materials"]["drafts"][0]["draft"]
+    assert {
+        material.get("matting", {}).get("flag", 0)
+        for material in nested["materials"]["videos"]
+    } == {0}

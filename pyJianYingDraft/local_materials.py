@@ -197,10 +197,13 @@ class CombinationMaterial:
     """复合片段时长, 单位为微秒。"""
     width: int
     height: int
+    matting: Optional[VideoMaterialMatting]
+    """智能抠像设置, 为空时不启用。"""
     draft: Dict[str, Any]
     """嵌套草稿 JSON。"""
 
-    def __init__(self, draft: Any, *, name: str, duration: int, width: int, height: int):
+    def __init__(self, draft: Any, *, name: str, duration: int, width: int, height: int,
+                 matting: Optional[VideoMaterialMatting] = None):
         self.id = str(uuid.uuid4()).upper()
         self.combination_id = str(uuid.uuid4()).upper()
         self.material_id = str(uuid.uuid4()).upper()
@@ -208,6 +211,7 @@ class CombinationMaterial:
         self.duration = duration
         self.width = width
         self.height = height
+        self.matting = matting
 
         self.canvas_id = str(uuid.uuid4()).upper()
         self.sound_channel_mapping_id = str(uuid.uuid4()).upper()
@@ -219,6 +223,22 @@ class CombinationMaterial:
             self.draft = deepcopy(draft)
         else:
             raise TypeError("draft must be a ScriptFile-like object or a dict")
+
+    def _export_matting_json(self) -> Dict[str, Any]:
+        if self.matting is None:
+            return {
+                "flag": 0,
+                "has_use_quick_brush": False,
+                "has_use_quick_eraser": False,
+                "interactiveTime": [],
+                "path": "",
+                "strokes": [],
+            }
+
+        matting_json = self.matting.export_json()
+        if "path" not in matting_json:
+            matting_json["path"] = ""
+        return matting_json
 
     def build_segment_extra_material_refs(self, speed_id: str) -> List[str]:
         """返回外层复合片段需要引用的素材 ID。"""
@@ -274,14 +294,7 @@ class CombinationMaterial:
             "material_id": "",
             "material_name": self.material_name,
             "material_url": "",
-            "matting": {
-                "flag": 0,
-                "has_use_quick_brush": False,
-                "has_use_quick_eraser": False,
-                "interactiveTime": [],
-                "path": "",
-                "strokes": [],
-            },
+            "matting": self._export_matting_json(),
             "media_path": "",
             "object_locked": None,
             "origin_material_id": "",

@@ -509,8 +509,6 @@ class VideoSegment(VisualSegment):
             path (`str`, optional): 剪映生成的抠像缓存路径. 默认不写入缓存路径,
                 由剪映在打开或导出草稿时生成.
         """
-        if isinstance(self.material_instance, CombinationMaterial):
-            raise TypeError("复合片段不能直接添加智能抠像, 请对嵌套素材片段添加")
         self.material_instance.matting = VideoMaterialMatting(path=path)
         return self
 
