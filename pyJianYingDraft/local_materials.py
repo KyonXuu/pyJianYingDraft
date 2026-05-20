@@ -91,13 +91,21 @@ class VideoMaterialMatting:
 
     def __init__(self, flag: int = 3, path: str = "",
                  has_use_quick_brush: bool = False, has_use_quick_eraser: bool = False,
-                 interactive_time: Optional[List[Any]] = None, strokes: Optional[List[Any]] = None):
+                 interactive_time: Optional[List[Any]] = None, strokes: Optional[List[Any]] = None,
+                 *, reuse_cache: bool = False):
+        interactive_time = interactive_time if interactive_time is not None else []
+        strokes = strokes if strokes is not None else []
+        if not reuse_cache and (
+            path or has_use_quick_brush or has_use_quick_eraser or interactive_time or strokes
+        ):
+            raise ValueError("matting cache fields require reuse_cache=True")
+
         self.flag = flag
         self.path = path
         self.has_use_quick_brush = has_use_quick_brush
         self.has_use_quick_eraser = has_use_quick_eraser
-        self.interactive_time = interactive_time if interactive_time is not None else []
-        self.strokes = strokes if strokes is not None else []
+        self.interactive_time = interactive_time
+        self.strokes = strokes
 
     def export_json(self) -> Dict[str, Any]:
         matting_json = {
