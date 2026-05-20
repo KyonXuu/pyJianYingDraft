@@ -1,6 +1,7 @@
 import json
 import uuid
 
+import pytest
 import pyJianYingDraft as draft
 
 
@@ -95,3 +96,127 @@ def test_compound_segment_can_enable_smart_matting_on_outer_material() -> None:
         material.get("matting", {}).get("flag", 0)
         for material in nested["materials"]["videos"]
     } == {0}
+
+
+def test_smart_matting_cache_requires_explicit_reuse() -> None:
+    with pytest.raises(ValueError, match="reuse_cache=True"):
+        draft.VideoMaterialMatting(path="##_draftpath_placeholder_##/matting/cache")
+
+    with pytest.raises(ValueError, match="reuse_cache=True"):
+        draft.VideoMaterialMatting(
+            has_use_quick_brush=True,
+            interactive_time=[100],
+            strokes=[{"x": 1}],
+        )
+
+
+def test_smart_matting_cache_can_be_reused_explicitly() -> None:
+    matting = draft.VideoMaterialMatting(
+        path="##_draftpath_placeholder_##/matting/cache",
+        has_use_quick_brush=True,
+        has_use_quick_eraser=True,
+        interactive_time=[100],
+        strokes=[{"x": 1}],
+        reuse_cache=True,
+    )
+
+    assert matting.export_json() == {
+        "flag": 3,
+        "has_use_quick_brush": True,
+        "has_use_quick_eraser": True,
+        "interactiveTime": [100],
+        "path": "##_draftpath_placeholder_##/matting/cache",
+        "strokes": [{"x": 1}],
+    }
+
+
+def test_add_smart_matting_defaults_to_fresh_cache() -> None:
+    segment = draft.VideoSegment(
+        _make_video_material("clip.mp4"),
+        draft.Timerange(0, 10_000_000),
+        source_timerange=draft.Timerange(0, 10_000_000),
+    )
+
+    with pytest.raises(ValueError, match="reuse_cache=True"):
+        segment.add_smart_matting(
+            path="##_draftpath_placeholder_##/matting/cache",
+        )
+
+    segment.add_smart_matting()
+
+    assert segment.material_instance.matting.export_json() == {
+        "flag": 3,
+        "has_use_quick_brush": False,
+        "has_use_quick_eraser": False,
+        "interactiveTime": [],
+        "strokes": [],
+    }
+
+
+def test_add_smart_matting_can_reuse_cache_explicitly() -> None:
+    segment = draft.VideoSegment(
+        _make_video_material("clip.mp4"),
+        draft.Timerange(0, 10_000_000),
+        source_timerange=draft.Timerange(0, 10_000_000),
+    )
+
+    segment.add_smart_matting(
+        path="##_draftpath_placeholder_##/matting/cache",
+        reuse_cache=True,
+    )
+
+    assert (
+        segment.material_instance.matting.export_json()["path"]
+        == "##_draftpath_placeholder_##/matting/cache"
+    )
+
+
+def test_combination_material_drops_matting_cache_by_default() -> None:
+    matting = draft.VideoMaterialMatting(
+        path="##_draftpath_placeholder_##/matting/cache",
+        has_use_quick_brush=True,
+        interactive_time=[100],
+        strokes=[{"x": 1}],
+        reuse_cache=True,
+    )
+    combination = draft.CombinationMaterial(
+        {"tracks": [], "materials": {"videos": []}},
+        name="复合片段1",
+        duration=10_000_000,
+        width=1080,
+        height=1920,
+        matting=matting,
+    )
+
+    exported = combination.export_video_json()
+
+    assert exported["matting"] == {
+        "flag": 3,
+        "has_use_quick_brush": False,
+        "has_use_quick_eraser": False,
+        "interactiveTime": [],
+        "path": "",
+        "strokes": [],
+    }
+
+
+def test_combination_material_can_reuse_matting_cache_explicitly() -> None:
+    matting = draft.VideoMaterialMatting(
+        path="##_draftpath_placeholder_##/matting/cache",
+        strokes=[{"x": 1}],
+        reuse_cache=True,
+    )
+    combination = draft.CombinationMaterial(
+        {"tracks": [], "materials": {"videos": []}},
+        name="复合片段1",
+        duration=10_000_000,
+        width=1080,
+        height=1920,
+        matting=matting,
+        reuse_matting_cache=True,
+    )
+
+    assert (
+        combination.export_video_json()["matting"]["path"]
+        == "##_draftpath_placeholder_##/matting/cache"
+    )

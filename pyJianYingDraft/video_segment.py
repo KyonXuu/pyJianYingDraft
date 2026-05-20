@@ -502,14 +502,19 @@ class VideoSegment(VisualSegment):
 
         return self
 
-    def add_smart_matting(self, *, path: str = "") -> "VideoSegment":
+    def add_smart_matting(self, *, path: str = "", reuse_cache: bool = False) -> "VideoSegment":
         """为视频素材添加智能人像抠像标记
 
         Args:
             path (`str`, optional): 剪映生成的抠像缓存路径. 默认不写入缓存路径,
                 由剪映在打开或导出草稿时生成.
+            reuse_cache (`bool`, optional): 是否显式复用已生成的剪映抠像缓存.
+                默认为否, 以避免不同素材之间误用旧的人像轮廓.
         """
-        self.material_instance.matting = VideoMaterialMatting(path=path)
+        self.material_instance.matting = VideoMaterialMatting(
+            path=path,
+            reuse_cache=reuse_cache,
+        )
         return self
 
     def add_mask(self, mask_type: MaskType, *, center_x: float = 0.0, center_y: float = 0.0, size: float = 0.5,

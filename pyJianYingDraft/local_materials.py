@@ -93,13 +93,36 @@ class VideoMaterialMatting:
 
     def __init__(self, flag: int = 3, path: str = "",
                  has_use_quick_brush: bool = False, has_use_quick_eraser: bool = False,
-                 interactive_time: Optional[List[Any]] = None, strokes: Optional[List[Any]] = None):
+                 interactive_time: Optional[List[Any]] = None, strokes: Optional[List[Any]] = None,
+                 *, reuse_cache: bool = False):
+        interactive_time = interactive_time if interactive_time is not None else []
+        strokes = strokes if strokes is not None else []
+        if not reuse_cache and (
+            path or has_use_quick_brush or has_use_quick_eraser or interactive_time or strokes
+        ):
+            raise ValueError("matting cache fields require reuse_cache=True")
+
         self.flag = flag
         self.path = path
         self.has_use_quick_brush = has_use_quick_brush
         self.has_use_quick_eraser = has_use_quick_eraser
-        self.interactive_time = interactive_time if interactive_time is not None else []
-        self.strokes = strokes if strokes is not None else []
+        self.interactive_time = interactive_time
+        self.strokes = strokes
+
+    def clone(self, *, reuse_cache: bool = False) -> "VideoMaterialMatting":
+        """复制抠像设置，默认只保留抠像标记并丢弃剪映缓存状态。"""
+        if not reuse_cache:
+            return VideoMaterialMatting(flag=self.flag)
+
+        return VideoMaterialMatting(
+            flag=self.flag,
+            path=self.path,
+            has_use_quick_brush=self.has_use_quick_brush,
+            has_use_quick_eraser=self.has_use_quick_eraser,
+            interactive_time=deepcopy(self.interactive_time),
+            strokes=deepcopy(self.strokes),
+            reuse_cache=True,
+        )
 
     def export_json(self) -> Dict[str, Any]:
         matting_json = {
@@ -246,7 +269,7 @@ class CombinationMaterial:
     """嵌套草稿 JSON。"""
 
     def __init__(self, draft: Any, *, name: str, duration: int, width: int, height: int,
-                 matting: Optional[VideoMaterialMatting] = None):
+                 matting: Optional[VideoMaterialMatting] = None, reuse_matting_cache: bool = False):
         self.id = str(uuid.uuid4()).upper()
         self.combination_id = str(uuid.uuid4()).upper()
         self.material_id = str(uuid.uuid4()).upper()
@@ -254,7 +277,7 @@ class CombinationMaterial:
         self.duration = duration
         self.width = width
         self.height = height
-        self.matting = matting
+        self.matting = matting.clone(reuse_cache=reuse_matting_cache) if matting is not None else None
 
         self.canvas_id = str(uuid.uuid4()).upper()
         self.sound_channel_mapping_id = str(uuid.uuid4()).upper()
