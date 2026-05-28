@@ -201,6 +201,58 @@ def test_compose_segments_matches_jianying_manual_render_index_layouts(
     } == {expected_track_render_index}
 
 
+def test_compose_segments_matches_jianying_manual_nested_frame_layout() -> None:
+    script = draft.ScriptFile(1080, 1920, 30, True, enable_render_index_track_mode=True)
+    script.add_track(draft.TrackType.video, "抠像轨道", absolute_index=14)
+
+    ranges = [
+        (10_066_666, 7_200_000, 7_200_000),
+        (17_266_666, 5_400_000, 5_400_000),
+        (22_666_666, 7_866_667, 7_866_667),
+        (30_533_333, 6_333_333, 6_333_333),
+        (54_000_000, 5_500_000, 5_500_000),
+        (59_500_000, 6_166_666, 6_166_666),
+        (79_400_000, 4_066_666, 4_067_000),
+    ]
+    for index, (start, target_duration, source_duration) in enumerate(ranges):
+        material = _make_video_material(f"matting_{index}.mp4")
+        material.duration = start + source_duration
+        segment = draft.VideoSegment(
+            material,
+            draft.Timerange(start, target_duration),
+            source_timerange=draft.Timerange(start, target_duration),
+        )
+        if source_duration != target_duration:
+            segment.source_timerange.duration = source_duration
+            segment.speed.speed = 1.0
+        script.add_segment(segment, "抠像轨道")
+
+    script.compose_segments("抠像轨道", name="复合片段1")
+    exported = json.loads(script.dumps())
+    nested = exported["materials"]["drafts"][0]["draft"]
+    nested_content_track = [
+        track
+        for track in nested["tracks"]
+        if track["type"] == "video" and len(track["segments"]) > 0
+    ][0]
+    nested_segments = nested_content_track["segments"]
+
+    assert [segment["target_timerange"] for segment in nested_segments] == [
+        {"start": 0, "duration": 7_200_000},
+        {"start": 7_200_000, "duration": 5_400_000},
+        {"start": 12_600_000, "duration": 7_866_666},
+        {"start": 20_466_666, "duration": 6_333_334},
+        {"start": 43_933_333, "duration": 5_500_000},
+        {"start": 49_433_333, "duration": 6_166_667},
+        {"start": 69_333_333, "duration": 4_066_667},
+    ]
+    assert nested_segments[-1]["source_timerange"] == {
+        "start": 79_400_000,
+        "duration": 4_067_000,
+    }
+    assert nested_segments[-1]["speed"] == 1.0
+
+
 def test_video_track_export_matches_jianying_main_and_overlay_flags() -> None:
     script = draft.ScriptFile(1080, 1920, 30, True, enable_render_index_track_mode=True)
     for track_name, render_index in [

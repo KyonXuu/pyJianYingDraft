@@ -471,6 +471,40 @@ class ScriptFile:
         ) + 1
 
     @staticmethod
+    def _time_to_frame(time_us: int, fps: float) -> int:
+        return round(time_us * fps / 1_000_000)
+
+    @staticmethod
+    def _frame_to_floor_time(frame: int, fps: float) -> int:
+        return int(math.floor(frame * 1_000_000 / fps))
+
+    @staticmethod
+    def _normalize_nested_compound_timerange(
+        segment: BaseSegment,
+        *,
+        compound_start_frame: int,
+        fps: float,
+    ) -> None:
+        """Match Jianying's manual compound nested frame-boundary layout."""
+
+        start_frame = ScriptFile._time_to_frame(segment.start, fps)
+        end_frame = ScriptFile._time_to_frame(segment.end, fps)
+        nested_start = ScriptFile._frame_to_floor_time(
+            start_frame - compound_start_frame,
+            fps,
+        )
+        nested_end = ScriptFile._frame_to_floor_time(
+            end_frame - compound_start_frame,
+            fps,
+        )
+        nested_duration = nested_end - nested_start
+        if nested_duration <= 0:
+            return
+
+        segment.start = nested_start
+        segment.duration = nested_duration
+
+    @staticmethod
     def _make_empty_default_track(track_type: TrackType, *, mute: bool = False) -> Dict[str, Any]:
         return {
             "attribute": int(mute),
@@ -601,9 +635,14 @@ class ScriptFile:
             enable_render_index_track_mode=True,
         )
         nested.add_track(track.track_type, "", mute=track.mute, absolute_index=track.render_index)
+        compound_start_frame = self._time_to_frame(compound_start, float(self.fps))
         for segment in selected_segments:
             nested_segment = deepcopy(segment)
-            nested_segment.start = nested_segment.start - compound_start
+            self._normalize_nested_compound_timerange(
+                nested_segment,
+                compound_start_frame=compound_start_frame,
+                fps=float(self.fps),
+            )
             if source_track_render_index != 0 and nested_segment.render_index_override is None:
                 nested_segment.render_index_override = track.render_index
             nested.add_segment(nested_segment, "")
