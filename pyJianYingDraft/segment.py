@@ -24,6 +24,8 @@ class BaseSegment:
         self.segment_id = uuid.uuid4().hex
         self.material_id = material_id
         self.target_timerange = target_timerange
+        self.render_index_override: Optional[int] = None
+        self.track_render_index_override: Optional[int] = None
 
         self.common_keyframes = []
 

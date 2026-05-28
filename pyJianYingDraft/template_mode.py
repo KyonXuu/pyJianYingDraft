@@ -10,6 +10,7 @@ from .segment import BaseSegment
 from .track import BaseTrack, TrackType
 from .local_materials import VideoMaterial, AudioMaterial
 
+from typing import Optional
 from typing import List, Dict, Any
 
 class ShrinkMode(Enum):
@@ -89,7 +90,7 @@ class ImportedTrack(BaseTrack):
 
         self.raw_data = deepcopy(json_data)
 
-    def export_json(self) -> Dict[str, Any]:
+    def export_json(self, track_render_index: Optional[int] = None) -> Dict[str, Any]:
         ret = deepcopy(self.raw_data)
         ret.update({
             "name": self.name,
@@ -120,12 +121,19 @@ class EditableTrack(ImportedTrack):
             return 0
         return self.segments[-1].target_timerange.end
 
-    def export_json(self) -> Dict[str, Any]:
-        ret = super().export_json()
+    def export_json(self, track_render_index: Optional[int] = None) -> Dict[str, Any]:
+        ret = super().export_json(track_render_index)
         # 为每个片段写入render_index
         segment_exports = [seg.export_json() for seg in self.segments]
-        for seg in segment_exports:
-            seg["render_index"] = self.render_index
+        for segment, seg_json in zip(self.segments, segment_exports):
+            render_index = getattr(segment, "render_index_override", None)
+            seg_json["render_index"] = self.render_index if render_index is None else render_index
+
+            segment_track_render_index = getattr(segment, "track_render_index_override", None)
+            if segment_track_render_index is not None:
+                seg_json["track_render_index"] = segment_track_render_index
+            elif track_render_index is not None:
+                seg_json["track_render_index"] = track_render_index
         ret["segments"] = segment_exports
         return ret
 

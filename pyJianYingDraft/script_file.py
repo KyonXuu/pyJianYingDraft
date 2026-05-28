@@ -425,6 +425,35 @@ class ScriptFile:
                 self.duration = max(self.duration, segment.end)
 
     @staticmethod
+    def _track_uses_visual_track_render_index(track: BaseTrack) -> bool:
+        return track.track_type in {TrackType.video, TrackType.sticker, TrackType.text}
+
+    @staticmethod
+    def _track_render_index_map(track_list: List[BaseTrack]) -> Dict[int, int]:
+        visual_tracks = [
+            track
+            for track in track_list
+            if ScriptFile._track_uses_visual_track_render_index(track)
+        ]
+        return {
+            id(track): index
+            for index, track in enumerate(visual_tracks)
+        }
+
+    def _current_track_render_index(self, target: BaseTrack) -> int:
+        track_list: List[BaseTrack] = list(self.imported_tracks + list(self.tracks.values()))
+        track_list.sort(key=lambda track: track.render_index)
+        return self._track_render_index_map(track_list).get(id(target), 0)
+
+    def _next_video_render_index(self) -> int:
+        video_tracks = [
+            track
+            for track in self.imported_tracks + list(self.tracks.values())
+            if track.track_type == TrackType.video
+        ]
+        return max([track.render_index for track in video_tracks], default=TrackType.video.value.render_index) + 1
+
+    @staticmethod
     def _make_empty_default_track(track_type: TrackType, *, mute: bool = False) -> Dict[str, Any]:
         return {
             "attribute": int(mute),
@@ -541,6 +570,8 @@ class ScriptFile:
         compound_start = min(segment.start for segment in selected_segments)
         compound_end = max(segment.end for segment in selected_segments)
         compound_duration = compound_end - compound_start
+        source_track_render_index = self._current_track_render_index(track)
+        outer_render_index = self._next_video_render_index()
 
         nested = ScriptFile(
             self.width,
@@ -557,7 +588,7 @@ class ScriptFile:
         nested_draft = self._format_nested_combination_track(
             json.loads(nested.dumps()),
             track_type=track.track_type,
-            track_render_index=track.render_index,
+            track_render_index=source_track_render_index,
             mute=track.mute,
         )
 
@@ -573,6 +604,8 @@ class ScriptFile:
             Timerange(compound_start, compound_duration),
             source_timerange=Timerange(0, compound_duration),
         )
+        combination_segment.render_index_override = outer_render_index
+        combination_segment.track_render_index_override = source_track_render_index
 
         first_index = indices[0]
         last_index = indices[-1]
@@ -1023,7 +1056,11 @@ class ScriptFile:
         # 对轨道排序并导出
         track_list: List[BaseTrack] = list(self.imported_tracks + list(self.tracks.values()))  # 新加入的轨道在列表末尾（上层）
         track_list.sort(key=lambda track: track.render_index)
-        self.content["tracks"] = [track.export_json() for track in track_list]
+        track_render_indexes = self._track_render_index_map(track_list)
+        self.content["tracks"] = [
+            track.export_json(track_render_indexes.get(id(track)))
+            for track in track_list
+        ]
 
         return json.dumps(self.content, ensure_ascii=False, indent=4)
 

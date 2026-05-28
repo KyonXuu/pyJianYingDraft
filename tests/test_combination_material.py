@@ -20,17 +20,21 @@ def _make_video_material(name: str, *, smart_matting: bool = False) -> draft.Vid
     return material
 
 
+def _add_clip(script: draft.ScriptFile, track_name: str, name: str, start: int, duration: int) -> None:
+    segment = draft.VideoSegment(
+        _make_video_material(name),
+        draft.Timerange(start, duration),
+        source_timerange=draft.Timerange(0, duration),
+    )
+    script.add_segment(segment, track_name)
+
+
 def test_compose_segments_exports_combination_material() -> None:
     script = draft.ScriptFile(1080, 1920, 30, True)
     script.add_track(draft.TrackType.video, "video", absolute_index=4)
 
     for index in range(3):
-        segment = draft.VideoSegment(
-            _make_video_material(f"clip_{index}.mp4"),
-            draft.Timerange(index * 10_000_000, 10_000_000),
-            source_timerange=draft.Timerange(0, 10_000_000),
-        )
-        script.add_segment(segment, "video")
+        _add_clip(script, "video", f"clip_{index}.mp4", index * 10_000_000, 10_000_000)
 
     combination_segment = script.compose_segments("video", name="复合片段1")
     exported = json.loads(script.dumps())
@@ -43,6 +47,8 @@ def test_compose_segments_exports_combination_material() -> None:
     ]
     assert len(video_segments) == 1
     assert video_segments[0]["id"] == combination_segment.segment_id
+    assert video_segments[0]["render_index"] == 5
+    assert video_segments[0]["track_render_index"] == 0
 
     assert len(exported["materials"]["drafts"]) == 1
     assert len(exported["materials"]["videos"]) == 1
@@ -77,12 +83,60 @@ def test_compose_segments_exports_combination_material() -> None:
         10_000_000,
         20_000_000,
     ]
-    assert {segment["track_render_index"] for segment in nested_segments} == {4}
+    assert {segment["render_index"] for segment in nested_segments} == {4}
+    assert {segment["track_render_index"] for segment in nested_segments} == {0}
     assert len(nested["materials"]["videos"]) == 3
     assert {
         material.get("matting", {}).get("flag", 0)
         for material in nested["materials"]["videos"]
     } == {0}
+
+
+def test_compose_segments_matches_jianying_multitrack_render_indices() -> None:
+    script = draft.ScriptFile(1080, 1920, 30, True, enable_render_index_track_mode=True)
+    for track_name, render_index in [
+        ("video_r0", 0),
+        ("video_r5", 5),
+        ("video_r10", 10),
+        ("video_r13", 13),
+        ("抠像轨道", 14),
+        ("video_r15", 15),
+        ("数字人轨道", 15),
+    ]:
+        script.add_track(draft.TrackType.video, track_name, absolute_index=render_index)
+        if track_name == "抠像轨道":
+            for index in range(3):
+                _add_clip(script, track_name, f"matting_{index}.mp4", index * 10_000_000, 10_000_000)
+        else:
+            _add_clip(script, track_name, f"{track_name}.mp4", 0, 10_000_000)
+
+    script.compose_segments("抠像轨道", name="复合片段1")
+    exported = json.loads(script.dumps())
+
+    outer_compound = next(
+        segment
+        for track in exported["tracks"]
+        if track["type"] == "video" and track["name"] == "抠像轨道"
+        for segment in track["segments"]
+    )
+    assert outer_compound["render_index"] == 16
+    assert outer_compound["track_render_index"] == 4
+
+    nested = exported["materials"]["drafts"][0]["draft"]
+    nested_content_track = [
+        track
+        for track in nested["tracks"]
+        if track["type"] == "video" and len(track["segments"]) > 0
+    ][0]
+    assert nested_content_track["flag"] == 2
+    assert {
+        segment["render_index"]
+        for segment in nested_content_track["segments"]
+    } == {14}
+    assert {
+        segment["track_render_index"]
+        for segment in nested_content_track["segments"]
+    } == {4}
 
 
 def test_compound_segment_can_enable_smart_matting_on_outer_material() -> None:
