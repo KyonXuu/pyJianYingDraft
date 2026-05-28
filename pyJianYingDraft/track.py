@@ -69,6 +69,20 @@ class BaseTrack(ABC):
     @abstractmethod
     def export_json(self, track_render_index: Optional[int] = None) -> Dict[str, Any]: ...
 
+def _exported_track_flag(track_type: TrackType, track_render_index: Optional[int]) -> int:
+    if track_type == TrackType.video and track_render_index not in (None, 0):
+        return 2
+    return 0
+
+def _exported_segment_render_index(
+    track_type: TrackType,
+    track_render_index: Optional[int],
+    render_index: int,
+) -> int:
+    if track_type == TrackType.video and track_render_index == 0:
+        return 0
+    return render_index
+
 Seg_type = TypeVar("Seg_type", bound=BaseSegment)
 class Track(BaseTrack, Generic[Seg_type]):
     """非模板模式下的轨道"""
@@ -127,7 +141,14 @@ class Track(BaseTrack, Generic[Seg_type]):
         segment_exports = [seg.export_json() for seg in self.segments]
         for segment, seg_json in zip(self.segments, segment_exports):
             render_index = getattr(segment, "render_index_override", None)
-            seg_json["render_index"] = self.render_index if render_index is None else render_index
+            if render_index is None:
+                seg_json["render_index"] = _exported_segment_render_index(
+                    self.track_type,
+                    track_render_index,
+                    self.render_index,
+                )
+            else:
+                seg_json["render_index"] = render_index
 
             segment_track_render_index = getattr(segment, "track_render_index_override", None)
             if segment_track_render_index is not None:
@@ -137,7 +158,7 @@ class Track(BaseTrack, Generic[Seg_type]):
 
         return {
             "attribute": int(self.mute),
-            "flag": 0,
+            "flag": _exported_track_flag(self.track_type, track_render_index),
             "id": self.track_id,
             "is_default_name": len(self.name) == 0,
             "name": self.name,

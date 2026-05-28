@@ -445,13 +445,30 @@ class ScriptFile:
         track_list.sort(key=lambda track: track.render_index)
         return self._track_render_index_map(track_list).get(id(target), 0)
 
-    def _next_video_render_index(self) -> int:
+    def _video_tracks_by_layer(self) -> List[BaseTrack]:
         video_tracks = [
             track
             for track in self.imported_tracks + list(self.tracks.values())
             if track.track_type == TrackType.video
         ]
-        return max([track.render_index for track in video_tracks], default=TrackType.video.value.render_index) + 1
+        video_tracks.sort(key=lambda track: track.render_index)
+        return video_tracks
+
+    def _compound_outer_render_index(self, target: BaseTrack) -> int:
+        video_tracks = self._video_tracks_by_layer()
+        target_index = video_tracks.index(target)
+        if target_index == 0:
+            return 0
+
+        upper_tracks = video_tracks[target_index + 1:]
+        if upper_tracks:
+            return max(track.render_index for track in upper_tracks) + 1
+
+        lower_tracks = video_tracks[:target_index]
+        return max(
+            [track.render_index for track in lower_tracks],
+            default=TrackType.video.value.render_index,
+        ) + 1
 
     @staticmethod
     def _make_empty_default_track(track_type: TrackType, *, mute: bool = False) -> Dict[str, Any]:
@@ -485,11 +502,14 @@ class ScriptFile:
             return nested_draft
 
         content_track = video_tracks[0]
-        content_track["flag"] = 2
+        content_track["flag"] = 0 if track_render_index == 0 else 2
         content_track["is_default_name"] = True
         content_track["name"] = ""
         for segment in content_track.get("segments", []):
             segment["track_render_index"] = track_render_index
+
+        if track_render_index == 0:
+            return nested_draft
 
         empty_track = ScriptFile._make_empty_default_track(track_type, mute=mute)
         other_tracks = [
@@ -571,7 +591,7 @@ class ScriptFile:
         compound_end = max(segment.end for segment in selected_segments)
         compound_duration = compound_end - compound_start
         source_track_render_index = self._current_track_render_index(track)
-        outer_render_index = self._next_video_render_index()
+        outer_render_index = self._compound_outer_render_index(track)
 
         nested = ScriptFile(
             self.width,
@@ -584,6 +604,8 @@ class ScriptFile:
         for segment in selected_segments:
             nested_segment = deepcopy(segment)
             nested_segment.start = nested_segment.start - compound_start
+            if source_track_render_index != 0 and nested_segment.render_index_override is None:
+                nested_segment.render_index_override = track.render_index
             nested.add_segment(nested_segment, "")
         nested_draft = self._format_nested_combination_track(
             json.loads(nested.dumps()),

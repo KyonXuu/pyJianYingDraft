@@ -7,7 +7,12 @@ from . import util
 from . import exceptions
 from .time_util import Timerange
 from .segment import BaseSegment
-from .track import BaseTrack, TrackType
+from .track import (
+    BaseTrack,
+    TrackType,
+    _exported_segment_render_index,
+    _exported_track_flag,
+)
 from .local_materials import VideoMaterial, AudioMaterial
 
 from typing import Optional
@@ -127,13 +132,21 @@ class EditableTrack(ImportedTrack):
         segment_exports = [seg.export_json() for seg in self.segments]
         for segment, seg_json in zip(self.segments, segment_exports):
             render_index = getattr(segment, "render_index_override", None)
-            seg_json["render_index"] = self.render_index if render_index is None else render_index
+            if render_index is None:
+                seg_json["render_index"] = _exported_segment_render_index(
+                    self.track_type,
+                    track_render_index,
+                    self.render_index,
+                )
+            else:
+                seg_json["render_index"] = render_index
 
             segment_track_render_index = getattr(segment, "track_render_index_override", None)
             if segment_track_render_index is not None:
                 seg_json["track_render_index"] = segment_track_render_index
             elif track_render_index is not None:
                 seg_json["track_render_index"] = track_render_index
+        ret["flag"] = _exported_track_flag(self.track_type, track_render_index)
         ret["segments"] = segment_exports
         return ret
 
