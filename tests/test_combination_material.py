@@ -139,6 +139,58 @@ def test_compose_segments_matches_jianying_multitrack_render_indices() -> None:
     } == {4}
 
 
+@pytest.mark.parametrize(
+    ("tracks", "target_track", "expected_outer_render_index", "expected_track_render_index"),
+    [
+        ([("target", 0), ("middle", 4), ("top", 15)], "target", 16, 0),
+        ([("low", 0), ("target", 4), ("top", 15)], "target", 16, 1),
+        ([("low", 0), ("middle", 4), ("target", 15)], "target", 16, 2),
+        ([("low", 3), ("target", 20), ("top", 50)], "target", 51, 1),
+        ([("low", 0), ("target", 10), ("peer", 10), ("top", 12)], "target", 13, 1),
+    ],
+)
+def test_compose_segments_outer_render_index_uses_next_video_layer(
+    tracks: list[tuple[str, int]],
+    target_track: str,
+    expected_outer_render_index: int,
+    expected_track_render_index: int,
+) -> None:
+    script = draft.ScriptFile(1080, 1920, 30, True, enable_render_index_track_mode=True)
+    for track_name, render_index in tracks:
+        script.add_track(draft.TrackType.video, track_name, absolute_index=render_index)
+        clip_count = 2 if track_name == target_track else 1
+        for index in range(clip_count):
+            _add_clip(script, track_name, f"{track_name}_{index}.mp4", index * 10_000_000, 10_000_000)
+
+    target_render_index = dict(tracks)[target_track]
+    script.compose_segments(target_track, name="复合片段1")
+    exported = json.loads(script.dumps())
+
+    outer_compound = next(
+        segment
+        for track in exported["tracks"]
+        if track["type"] == "video" and track["name"] == target_track
+        for segment in track["segments"]
+    )
+    assert outer_compound["render_index"] == expected_outer_render_index
+    assert outer_compound["track_render_index"] == expected_track_render_index
+
+    nested = exported["materials"]["drafts"][0]["draft"]
+    nested_content_track = [
+        track
+        for track in nested["tracks"]
+        if track["type"] == "video" and len(track["segments"]) > 0
+    ][0]
+    assert {
+        segment["render_index"]
+        for segment in nested_content_track["segments"]
+    } == {target_render_index}
+    assert {
+        segment["track_render_index"]
+        for segment in nested_content_track["segments"]
+    } == {expected_track_render_index}
+
+
 def test_compound_segment_can_enable_smart_matting_on_outer_material() -> None:
     script = draft.ScriptFile(1080, 1920, 30, True)
     script.add_track(draft.TrackType.video, "video")
