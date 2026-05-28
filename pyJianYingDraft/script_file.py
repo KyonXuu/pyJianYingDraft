@@ -1,6 +1,7 @@
 import os
 import json
 import math
+import uuid
 from copy import deepcopy
 
 from typing import Optional, Literal, Union, overload
@@ -423,6 +424,54 @@ class ScriptFile:
                 self._register_segment_materials(segment)
                 self.duration = max(self.duration, segment.end)
 
+    @staticmethod
+    def _make_empty_default_track(track_type: TrackType, *, mute: bool = False) -> Dict[str, Any]:
+        return {
+            "attribute": int(mute),
+            "flag": 0,
+            "id": uuid.uuid4().hex,
+            "is_default_name": True,
+            "name": "",
+            "segments": [],
+            "type": track_type.name,
+        }
+
+    @staticmethod
+    def _format_nested_combination_track(
+        nested_draft: Dict[str, Any],
+        *,
+        track_type: TrackType,
+        track_render_index: int,
+        mute: bool,
+    ) -> Dict[str, Any]:
+        """Make generated compound tracks match Jianying's own nested draft shape."""
+        nested_draft["render_index_track_mode_on"] = True
+
+        video_tracks = [
+            track
+            for track in nested_draft.get("tracks", [])
+            if track.get("type") == track_type.name
+        ]
+        if len(video_tracks) != 1:
+            return nested_draft
+
+        content_track = video_tracks[0]
+        content_track["flag"] = 2
+        content_track["is_default_name"] = True
+        content_track["name"] = ""
+        for segment in content_track.get("segments", []):
+            segment["track_render_index"] = track_render_index
+
+        empty_track = ScriptFile._make_empty_default_track(track_type, mute=mute)
+        other_tracks = [
+            track
+            for track in nested_draft.get("tracks", [])
+            if track is not content_track
+        ]
+        nested_draft["tracks"] = other_tracks + [empty_track, content_track]
+
+        return nested_draft
+
     def add_segment(self, segment: Union[VideoSegment, StickerSegment, AudioSegment, TextSegment],
                     track_name: Optional[str] = None) -> "ScriptFile":
         """向指定轨道中添加一个片段
@@ -493,15 +542,27 @@ class ScriptFile:
         compound_end = max(segment.end for segment in selected_segments)
         compound_duration = compound_end - compound_start
 
-        nested = ScriptFile(self.width, self.height, self.fps, False)
-        nested.add_track(track.track_type, track.name, mute=track.mute, absolute_index=track.render_index)
+        nested = ScriptFile(
+            self.width,
+            self.height,
+            self.fps,
+            False,
+            enable_render_index_track_mode=True,
+        )
+        nested.add_track(track.track_type, "", mute=track.mute, absolute_index=track.render_index)
         for segment in selected_segments:
             nested_segment = deepcopy(segment)
             nested_segment.start = nested_segment.start - compound_start
-            nested.add_segment(nested_segment, track.name)
+            nested.add_segment(nested_segment, "")
+        nested_draft = self._format_nested_combination_track(
+            json.loads(nested.dumps()),
+            track_type=track.track_type,
+            track_render_index=track.render_index,
+            mute=track.mute,
+        )
 
         combination_material = CombinationMaterial(
-            nested,
+            nested_draft,
             name=name,
             duration=compound_duration,
             width=self.width,
@@ -945,6 +1006,10 @@ class ScriptFile:
         self.content["fps"] = self.fps
         self.content["duration"] = self.duration
         self.content["config"]["maintrack_adsorb"] = self.maintrack_adsorb
+        self.content["config"]["combination_max_index"] = max(
+            self.content["config"].get("combination_max_index", 1),
+            len(self.materials.drafts) + 1,
+        )
         self.content["canvas_config"] = {"width": self.width, "height": self.height, "ratio": "original"}
         self.content["materials"] = self.materials.export_json()
 

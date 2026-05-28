@@ -22,7 +22,7 @@ def _make_video_material(name: str, *, smart_matting: bool = False) -> draft.Vid
 
 def test_compose_segments_exports_combination_material() -> None:
     script = draft.ScriptFile(1080, 1920, 30, True)
-    script.add_track(draft.TrackType.video, "video")
+    script.add_track(draft.TrackType.video, "video", absolute_index=4)
 
     for index in range(3):
         segment = draft.VideoSegment(
@@ -46,23 +46,38 @@ def test_compose_segments_exports_combination_material() -> None:
 
     assert len(exported["materials"]["drafts"]) == 1
     assert len(exported["materials"]["videos"]) == 1
+    assert exported["config"]["combination_max_index"] == 2
     assert exported["materials"]["videos"][0]["material_name"] == "复合片段1"
     assert exported["materials"]["videos"][0]["extra_type_option"] == 2
     assert video_segments[0]["material_id"] == exported["materials"]["videos"][0]["id"]
     assert exported["materials"]["drafts"][0]["id"] in video_segments[0]["extra_material_refs"]
 
     nested = exported["materials"]["drafts"][0]["draft"]
-    nested_segments = [
-        segment
+    assert nested["render_index_track_mode_on"] is True
+    nested_video_tracks = [
+        track
         for track in nested["tracks"]
         if track["type"] == "video"
-        for segment in track["segments"]
+    ]
+    assert len(nested_video_tracks) == 2
+    assert nested_video_tracks[0]["flag"] == 0
+    assert nested_video_tracks[0]["is_default_name"] is True
+    assert nested_video_tracks[0]["name"] == ""
+    assert nested_video_tracks[0]["segments"] == []
+    assert nested_video_tracks[1]["flag"] == 2
+    assert nested_video_tracks[1]["is_default_name"] is True
+    assert nested_video_tracks[1]["name"] == ""
+
+    nested_segments = [
+        segment
+        for segment in nested_video_tracks[1]["segments"]
     ]
     assert [segment["target_timerange"]["start"] for segment in nested_segments] == [
         0,
         10_000_000,
         20_000_000,
     ]
+    assert {segment["track_render_index"] for segment in nested_segments} == {4}
     assert len(nested["materials"]["videos"]) == 3
     assert {
         material.get("matting", {}).get("flag", 0)
